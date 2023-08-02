@@ -419,10 +419,34 @@ static int guess_mode(struct libusb_device* dev, struct usb_device *usbdev)
 		return 4;
 	}
 
-	if(devdesc.bNumConfigurations != 5) {
-		// No known modes with more then 5 configurations
-		return 0;
-	}
+    int desired_config = devdesc.bNumConfigurations;
+    if (desired_config > 4) {
+        if (desired_config > 5) {
+            usbmuxd_log(LL_ERROR, "Device %d-%d has more than 5 configurations, but usbmuxd doesn't support that. Choosing configuration 5 instead.", bus, address);
+            desired_config = 5;
+        }
+        /* verify if the configuration 5 is actually usable */
+        do {
+            struct libusb_config_descriptor *config;
+            const struct libusb_interface_descriptor *intf;
+            if (libusb_get_config_descriptor_by_value(dev, 5, &config) != 0) {
+                usbmuxd_log(LL_WARNING, "Device %d-%d: Failed to get config descriptor for configuration 5, choosing configuration 4 instead.", bus, address);
+                desired_config = 4;
+                break;
+            }
+            if (config->bNumInterfaces < 3) {
+                usbmuxd_log(LL_WARNING, "Device %d-%d: bNumInterfaces is less than 3 (%d), choosing configuration 4 instead.", bus, address, config->bNumInterfaces);
+                desired_config = 4;
+                break;
+            }
+            intf = &config->interface[2].altsetting[0];
+            if (intf->bInterfaceClass != 0xFF || intf->bInterfaceSubClass != 0x2A || intf->bInterfaceProtocol != 0xFF) {
+                usbmuxd_log(LL_WARNING, "Device %d-%d: Interface 2 is %d/%d/%d, not 0xFF/0x2A/0xFF, choosing configuration 4 instead.", bus, address, intf->bInterfaceClass, intf->bInterfaceSubClass, intf->bInterfaceProtocol);
+                desired_config = 4;
+                break;
+            }
+        } while (0);
+    }
 
 	if((res = libusb_get_config_descriptor_by_value(dev, 5, &config)) != 0) {
 		usbmuxd_log(LL_NOTICE, "Could not get configuration 5 descriptor for device %i-%i: %s", bus, address, libusb_error_name(res));
